@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import typer
 from rich import print as rprint
 from rich.table import Table
 
 from .decoder import decode
+from .renderer import build_item_render_html
 
 app = typer.Typer(
     name="cs2screenshot",
@@ -24,7 +26,7 @@ def _root() -> None:
 @app.command(name="decode")
 def decode_cmd(
     inspect_link: str = typer.Argument(..., metavar="INSPECT_LINK", help="CS2 inspect link"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    table_output: bool = typer.Option(False, "--table", help="Output as table instead of JSON"),
 ) -> None:
     """Decode a CS2 inspect link and print item parameters."""
     try:
@@ -33,7 +35,7 @@ def decode_cmd(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
 
-    if json_output:
+    if not table_output:
         typer.echo(json.dumps(data.to_dict(), indent=2))
         return
 
@@ -56,7 +58,9 @@ def decode_cmd(
     row("Market ID", data.market_id or None)
     table.add_section()
     row("DefIndex", data.defindex)
+    row("Item Name", data.item_name)
     row("PaintIndex", data.paintindex)
+    row("Paint Name", data.paint_name)
     row("PaintSeed", data.paintseed)
     row("PaintWear (float)", f"{data.paintwear:.10f}" if data.paintwear else None)
     row("Wear Tier", f"{data.wear_tier} ({data.wear_tier_name})" if data.wear_tier else None)
@@ -70,18 +74,53 @@ def decode_cmd(
     if data.stickers:
         table.add_section()
         for i, s in enumerate(data.stickers):
+            extra = ""
+            if s.offset_x or s.offset_y:
+                extra += f"  x={s.offset_x:.4f} y={s.offset_y:.4f}"
+            # In new payloads rotation is frequently encoded in field 9 ("offset_z").
+            rot = s.rotation if s.rotation else s.offset_z
+            extra += f"  r={rot:.4f}"
             row(
                 f"Sticker [{i}]",
                 f"slot={s.slot}  id={s.sticker_id}"
-                + (f"  wear={s.wear:.4f}" if s.wear else ""),
+                + (f" ({s.name})" if s.name else "")
+                + f"  wear={s.wear:.4f}"
+                + extra,
             )
 
     if data.keychains:
         table.add_section()
         for i, k in enumerate(data.keychains):
-            row(f"Keychain [{i}]", f"slot={k.slot}  id={k.keychain_id}  pattern={k.pattern}")
+            row(
+                f"Keychain [{i}]",
+                f"slot={k.slot}  id={k.keychain_id}"
+                + (f" ({k.name})" if k.name else "")
+                + f"  pattern={k.pattern}",
+            )
 
     rprint(table)
+
+
+@app.command(name="render")
+def render_cmd(
+    inspect_link: str = typer.Argument(..., metavar="INSPECT_LINK", help="CS2 inspect link"),
+    out: Path = typer.Option(Path("item-render.html"), "--out", help="Output HTML file"),
+    inline_images: bool = typer.Option(
+        True,
+        "--inline-images/--no-inline-images",
+        help="Download images and embed as data URIs to avoid browser CORS issues.",
+    ),
+) -> None:
+    """Generate an HTML preview that overlays stickers on top of the skin image."""
+    try:
+        data = decode(inspect_link)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    html = build_item_render_html(data, inline_images=inline_images)
+    out.write_text(html, encoding="utf-8")
+    typer.echo(str(out.resolve()))
 
 
 if __name__ == "__main__":
