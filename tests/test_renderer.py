@@ -35,8 +35,7 @@ def test_build_item_render_html_contains_payload():
 
     assert "https://example.com/skin.png" in html
     assert "https://example.com/sticker.png" in html
-    assert "Approximate preview" in html
-    assert "canvas" in html
+    assert "cs2inspects" in html
     assert "Download PNG" in html
 
 
@@ -78,3 +77,26 @@ def test_inline_images_replaces_urls(monkeypatch):
     )
     html = build_item_render_html(data, inline_images=True)
     assert "data:image/png;base64," in html
+
+
+def test_html_contains_coordinate_formula():
+    """The JS must include the cs2inspects coordinate formula."""
+    data = InspectData(
+        defindex=7,
+        paintindex=282,
+        paintseed=661,
+        paintwear=0.15,
+        stattrak=None,
+        stattrak_count=None,
+        souvenir=None,
+        rarity=4,
+        quality=4,
+        stickers=[],
+    )
+    html = build_item_render_html(data)
+    # Must reference the stickerFloatValue divisor used by cs2inspects
+    assert "stickerFloatValue" in html
+    assert "computeStickerPosition" in html
+    # Must use a 1920x1080 scene
+    assert "1920" in html
+    assert "1080" in html
