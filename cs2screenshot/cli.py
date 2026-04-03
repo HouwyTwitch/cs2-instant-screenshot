@@ -56,7 +56,9 @@ def decode_cmd(
     row("Market ID", data.market_id or None)
     table.add_section()
     row("DefIndex", data.defindex)
+    row("Item Name", data.item_name)
     row("PaintIndex", data.paintindex)
+    row("Paint Name", data.paint_name)
     row("PaintSeed", data.paintseed)
     row("PaintWear (float)", f"{data.paintwear:.10f}" if data.paintwear else None)
     row("Wear Tier", f"{data.wear_tier} ({data.wear_tier_name})" if data.wear_tier else None)
@@ -70,16 +72,29 @@ def decode_cmd(
     if data.stickers:
         table.add_section()
         for i, s in enumerate(data.stickers):
+            extra = ""
+            if s.offset_x or s.offset_y:
+                extra += f"  x={s.offset_x:.4f} y={s.offset_y:.4f}"
+            # In new payloads rotation is frequently encoded in field 9 ("offset_z").
+            rot = s.rotation if s.rotation else s.offset_z
+            extra += f"  r={rot:.4f}"
             row(
                 f"Sticker [{i}]",
                 f"slot={s.slot}  id={s.sticker_id}"
-                + (f"  wear={s.wear:.4f}" if s.wear else ""),
+                + (f" ({s.name})" if s.name else "")
+                + f"  wear={s.wear:.4f}"
+                + extra,
             )
 
     if data.keychains:
         table.add_section()
         for i, k in enumerate(data.keychains):
-            row(f"Keychain [{i}]", f"slot={k.slot}  id={k.keychain_id}  pattern={k.pattern}")
+            row(
+                f"Keychain [{i}]",
+                f"slot={k.slot}  id={k.keychain_id}"
+                + (f" ({k.name})" if k.name else "")
+                + f"  pattern={k.pattern}",
+            )
 
     rprint(table)
 
