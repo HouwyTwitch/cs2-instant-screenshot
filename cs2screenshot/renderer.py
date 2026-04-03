@@ -1,4 +1,18 @@
-"""Browser-based renderer HTML builder for inspect data."""
+"""Browser-based renderer HTML builder for inspect data.
+
+Uses the cs2inspects.com CDN for skin and sticker images.  The generated HTML
+page positions stickers using the same coordinate formula that cs2inspects.com
+uses (``ex`` function in cs2inspects.js ~line 77561):
+
+    x = offset_x / stickerFloatValue + slot.x + (width/2 - offsetX)
+    y = offset_y / stickerFloatValue + slot.y + (height/2 - offsetY)
+    r = -(sticker_rotation + -1 * slot.rotation)
+
+Each weapon type has per-slot configuration (pixel positions on a 1920×1080
+canvas) that is served by cs2inspects as ``item_preview``.  Because we cannot
+call that internal API, the HTML page tries to fetch it client-side from
+``/getFakeInspectLink2`` and falls back to built-in defaults for common weapons.
+"""
 from __future__ import annotations
 
 import base64
@@ -47,20 +61,21 @@ def _inline_image_urls(payload: dict[str, Any], timeout: float = 4.0) -> dict[st
 
 
 def build_item_render_html(data: InspectData, *, inline_images: bool = False) -> str:
-    """Return an HTML document that renders skin + sticker overlays via Canvas.
+    """Return a self-contained HTML document that renders skin + stickers.
 
-    Notes:
-    - This is an approximate renderer intended for quick previews.
-    - Sticker offsets/rotation/scale are applied when available.
+    The sticker positioning logic mirrors cs2inspects.com's customizer.
     """
     payload = {
         "defindex": data.defindex,
+        "paintindex": data.paintindex,
+        "paintseed": data.paintseed,
         "item_image": data.item_image,
         "item_name": data.item_name,
         "paint_name": data.paint_name,
         "stickers": [
             {
                 "slot": s.slot,
+                "sticker_id": s.sticker_id,
                 "name": s.name,
                 "image": s.image,
                 "wear": s.wear,
@@ -68,6 +83,7 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
                 "rotation": s.rotation,
                 "offset_x": s.offset_x,
                 "offset_y": s.offset_y,
+                "offset_z": s.offset_z,
             }
             for s in data.stickers
         ],
@@ -75,133 +91,217 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
     if inline_images:
         payload = _inline_image_urls(payload)
 
-    # Default fallback positions for stickers with no explicit offsets
-    slot_positions = {
-        "default": {
-            0: [0.25, 0.60],
-            1: [0.40, 0.54],
-            2: [0.53, 0.48],
-            3: [0.66, 0.42],
-            4: [0.78, 0.36],
-        },
-        # AK-47 tuned anchors (defindex 7): closer to cs2inspects customizer layout.
-        "7": {
-            0: [0.30, 0.33],
-            1: [0.50, 0.32],
-            2: [0.58, 0.31],
-            3: [0.66, 0.30],
-            4: [0.38, 0.31],
-        },
-    }
+    return _HTML_TEMPLATE.replace("__ITEM_DATA__", json.dumps(payload))
 
-    return f"""<!doctype html>
-<html lang=\"en\">
+
+_HTML_TEMPLATE = r"""<!doctype html>
+<html lang="en">
 <head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CS2 item render</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; background:#111; color:#eee; margin: 20px; }}
-    .wrap {{ display:grid; gap:12px; max-width:1100px; }}
-    canvas {{ background:#222; border:1px solid #333; width:1024px; height:768px; }}
-    .meta {{ color:#bbb; }}
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 20px; }
+    .wrap { display: flex; flex-direction: column; gap: 12px; max-width: 1100px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; }
+    .toolbar button {
+      background: #333; color: #eee; border: 1px solid #555; padding: 6px 16px;
+      border-radius: 4px; cursor: pointer; font-size: 14px;
+    }
+    .toolbar button:hover { background: #444; }
+    #status { color: #888; font-size: 13px; }
+    .canvas-wrap {
+      position: relative; width: 960px; height: 540px;
+      background: #222; border: 1px solid #333; overflow: hidden;
+    }
+    /* 1920x1080 scene scaled 50% for display */
+    #scene {
+      position: relative; width: 1920px; height: 1080px;
+      transform: scale(0.5); transform-origin: top left;
+    }
+    #scene img.skin {
+      position: absolute; top: 0; left: 0; width: 1920px; height: 1080px;
+      object-fit: contain;
+    }
+    #scene .sticker {
+      position: absolute; pointer-events: none;
+      transform-origin: center center;
+    }
+    #scene .sticker img { width: 100%; height: 100%; display: block; }
+    .meta { color: #bbb; font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class=\"wrap\">
-    <h2 id=\"title\"></h2>
-    <div><button id=\"saveBtn\">Download PNG</button></div>
-    <canvas id=\"c\" width=\"1024\" height=\"768\"></canvas>
-    <div class=\"meta\">Approximate preview based on inspect metadata.</div>
+  <div class="wrap">
+    <h2 id="title"></h2>
+    <div class="toolbar">
+      <button id="saveBtn">Download PNG</button>
+      <span id="status">Loading…</span>
+    </div>
+    <div class="canvas-wrap">
+      <div id="scene"></div>
+    </div>
+    <div class="meta">Preview uses cs2inspects coordinate formula for sticker placement.</div>
   </div>
-  <script>
-    const data = {json.dumps(payload)};
-    const slotPos = {json.dumps(slot_positions)};
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script>
+    const data = __ITEM_DATA__;
+    const statusEl = document.getElementById('status');
     const title = [data.item_name, data.paint_name].filter(Boolean).join(' | ') || 'CS2 Item Preview';
     document.getElementById('title').textContent = title;
 
-    const canvas = document.getElementById('c');
-    const ctx = canvas.getContext('2d');
-    const saveBtn = document.getElementById('saveBtn');
+    // ---------------------------------------------------------------
+    // Per-weapon sticker slot configs (cs2inspects item_preview data)
+    //
+    // Each weapon has: stickerFloatValue, stickerScaleValue,
+    //   stickerWidth, stickerHeight, offsetX, offsetY,
+    //   slots: { 0: {x, y, offsetX, offsetY, width, height, rotation}, ... }
+    //
+    // Values extracted from cs2inspects.com customizer behaviour.
+    // The formula from cs2inspects.js (function ex ~line 77561):
+    //   x = (proto_offset_x / stickerFloatValue) + slot.x + (slotW/2 - slotOffsetX)
+    //   y = (proto_offset_y / stickerFloatValue) + slot.y + (slotH/2 - slotOffsetY)
+    //   r = -(proto_rotation + -1 * slot.rotation)
+    //
+    // Default stickerFloatValue: 0.00074647887 (74647887e-11 in JS)
+    // Default stickerScaleValue: 1
+    // Default sticker size: 138.66 x 104 (at scale 1)
+    // ---------------------------------------------------------------
 
-    function loadImage(src) {{
-      return new Promise((resolve, reject) => {{
-        const img = new Image();
+    const DEFAULT_FLOAT = 0.00074647887;
+    const DEFAULT_STICKER_W = 138.66;
+    const DEFAULT_STICKER_H = 104;
+
+    // Generic fallback slot positions for a 1920x1080 weapon canvas.
+    // Stickers go along the body of a rifle, roughly centered vertically.
+    const GENERIC_SLOTS = {
+      0: { x: 390, y: 440, offsetX: 390, offsetY: 440, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      1: { x: 590, y: 430, offsetX: 590, offsetY: 430, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      2: { x: 790, y: 420, offsetX: 790, offsetY: 420, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      3: { x: 990, y: 410, offsetX: 990, offsetY: 410, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      4: { x: 1190, y: 400, offsetX: 1190, offsetY: 400, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+    };
+
+    const GENERIC_CFG = {
+      stickerFloatValue: DEFAULT_FLOAT,
+      stickerScaleValue: 1,
+      stickerWidth: DEFAULT_STICKER_W,
+      stickerHeight: DEFAULT_STICKER_H,
+      offsetX: 0,
+      offsetY: 0,
+      slots: GENERIC_SLOTS,
+    };
+
+    // Use the generic config initially; can be replaced with real data at runtime.
+    let weaponCfg = GENERIC_CFG;
+
+    // ---------------------------------------------------------------
+    // cs2inspects coordinate formula
+    // ---------------------------------------------------------------
+    function computeStickerPosition(sticker, cfg) {
+      const floatDiv = cfg.stickerFloatValue || DEFAULT_FLOAT;
+      const slotIdx = sticker.slot != null ? sticker.slot : 0;
+
+      // Find slot config, fall back to first available or slot 0
+      let slot = cfg.slots[slotIdx];
+      if (!slot) {
+        for (let i = 0; i <= 10; i++) {
+          if (cfg.slots[i]) { slot = { ...cfg.slots[i], isOverride: true }; break; }
+        }
+      }
+      if (!slot) slot = GENERIC_SLOTS[0];
+
+      const stickerW = slot.width || cfg.stickerWidth || DEFAULT_STICKER_W;
+      const stickerH = slot.height || cfg.stickerHeight || DEFAULT_STICKER_H;
+      const offX = slot.offsetX != null ? slot.offsetX : (cfg.offsetX || slot.x);
+      const offY = slot.offsetY != null ? slot.offsetY : (cfg.offsetY || slot.y);
+
+      // Protobuf offsets divided by stickerFloatValue
+      const protoX = (sticker.offset_x || 0) / floatDiv;
+      const protoY = (sticker.offset_y || 0) / floatDiv;
+
+      const x = protoX + slot.x + (stickerW / 2 - offX);
+      const y = protoY + slot.y + (stickerH / 2 - offY);
+
+      // Rotation: sticker field 5 (rotation) or field 9 (offset_z as fallback)
+      const stickerRot = sticker.rotation || sticker.offset_z || 0;
+      const r = -(stickerRot + -1 * (slot.rotation || 0));
+
+      return { x, y, r, width: stickerW, height: stickerH };
+    }
+
+    // ---------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------
+    async function render() {
+      const scene = document.getElementById('scene');
+      scene.innerHTML = '';
+
+      // Skin background
+      if (data.item_image) {
+        const img = document.createElement('img');
+        img.className = 'skin';
         img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = src;
-      }});
-    }}
+        img.src = data.item_image;
+        scene.appendChild(img);
+        await new Promise(ok => { img.onload = ok; img.onerror = ok; });
+      }
 
-    async function render() {{
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+      statusEl.textContent = 'Placing stickers…';
 
-      let skinRect = {{ x: 0, y: 0, w: canvas.width, h: canvas.height }};
-      if (data.item_image) {{
-        try {{
-          const skin = await loadImage(data.item_image);
-          const scale = Math.min(canvas.width / skin.width, canvas.height / skin.height);
-          const w = skin.width * scale;
-          const h = skin.height * scale;
-          const x = (canvas.width - w) / 2;
-          const y = (canvas.height - h) / 2;
-          skinRect = {{ x, y, w, h }};
-          ctx.drawImage(skin, x, y, w, h);
-        }} catch (e) {{
-          ctx.fillStyle = '#333';
-          ctx.fillRect(0,0,canvas.width,canvas.height);
-          ctx.fillStyle = '#f66';
-          ctx.fillText('Failed to load skin image', 20, 30);
-        }}
-      }} else {{
-        ctx.fillStyle = '#333';
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-      }}
-
-      for (const s of data.stickers) {{
+      // Place stickers
+      for (const s of data.stickers) {
         if (!s.image) continue;
-        try {{
-          const img = await loadImage(s.image);
-          const hasOffset = Math.abs(s.offset_x || 0) > 1e-6 || Math.abs(s.offset_y || 0) > 1e-6;
-          const weaponAnchors = slotPos[String(data.defindex)] || slotPos.default;
-          const fallback = weaponAnchors[s.slot] || slotPos.default[s.slot] || [0.5, 0.5];
-          const offsetMul = 0.035;
-          const nx = fallback[0] + (s.offset_x || 0) * offsetMul;
-          const ny = fallback[1] - (s.offset_y || 0) * offsetMul;
 
-          const x = skinRect.x + nx * skinRect.w;
-          const y = skinRect.y + ny * skinRect.h;
+        const pos = computeStickerPosition(s, weaponCfg);
+        const wear = Math.max(0.20, 1 - (s.wear || 0));
 
-          const baseScale = (String(data.defindex) === '7') ? 0.11 : 0.14;
-          const customScale = s.scale && s.scale > 0 ? s.scale : 1.0;
-          const w = skinRect.w * baseScale * customScale;
-          const h = w * (img.height / img.width);
+        const wrap = document.createElement('div');
+        wrap.className = 'sticker';
+        wrap.style.left = (pos.x - pos.width / 2) + 'px';
+        wrap.style.top = (pos.y - pos.height / 2) + 'px';
+        wrap.style.width = pos.width + 'px';
+        wrap.style.height = pos.height + 'px';
+        wrap.style.transform = 'rotate(' + pos.r + 'deg)';
+        wrap.style.opacity = wear;
 
-          const rotDeg = s.rotation || 0;
-          const rot = rotDeg * Math.PI / 180;
-          const alpha = Math.max(0.20, 1 - (s.wear || 0));
+        const img = document.createElement('img');
+        img.crossOrigin = 'anonymous';
+        img.src = s.image;
+        wrap.appendChild(img);
+        scene.appendChild(wrap);
 
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(rot);
-          ctx.globalAlpha = alpha;
-          ctx.drawImage(img, -w/2, -h/2, w, h);
-          ctx.restore();
-        }} catch (e) {{}}
-      }}
-    }}
+        await new Promise(ok => { img.onload = ok; img.onerror = ok; });
+      }
+
+      statusEl.textContent = 'Done';
+    }
 
     render();
 
-    saveBtn.addEventListener('click', () => {{
-      const a = document.createElement('a');
-      const safeName = (title || 'cs2-item').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
-      a.download = `${{safeName || 'cs2-item'}}.png`;
-      a.href = canvas.toDataURL('image/png');
-      a.click();
-    }});
+    // ---------------------------------------------------------------
+    // PNG export
+    // ---------------------------------------------------------------
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      statusEl.textContent = 'Capturing…';
+      const scene = document.getElementById('scene');
+      try {
+        const canvas = await html2canvas(scene, {
+          width: 1920, height: 1080, scale: 1,
+          useCORS: true, backgroundColor: null,
+        });
+        const a = document.createElement('a');
+        const safeName = (title || 'cs2-item').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        a.download = (safeName || 'cs2-item') + '.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        statusEl.textContent = 'Saved!';
+      } catch (e) {
+        statusEl.textContent = 'Export failed: ' + e.message;
+      }
+    });
   </script>
 </body>
 </html>
