@@ -8,6 +8,9 @@ def _reset():
     NameResolver._skin_by_pair = {}
     NameResolver._sticker_names = {}
     NameResolver._keychain_names = {}
+    NameResolver._sticker_images = {}
+    NameResolver._keychain_images = {}
+    NameResolver._skin_images = {}
     NameResolver._state_loaded = False
     NameResolver._last_failed_at = 0.0
 
@@ -20,9 +23,10 @@ def test_parses_bymykel_like_structures(monkeypatch, tmp_path):
         "weapon": {"weapon_id": 60, "name": "M4A1-S"},
         "pattern": {"name": "Printstream"},
         "paint_index": "1017",
+        "image": "https://example.com/skin.png",
     }]
-    stickers = [{"def_index": "5007", "name": "Movistar Riders (Holo) | Stockholm 2021"}]
-    keychains = [{"def_index": "12", "name": "Charm | Lil' Ava"}]
+    stickers = [{"def_index": "5007", "name": "Movistar Riders (Holo) | Stockholm 2021", "image": "https://example.com/sticker.png"}]
+    keychains = [{"def_index": "12", "name": "Charm | Lil' Ava", "image": "https://example.com/keychain.png"}]
 
     def fake_fetch(_client, url):
         if url.endswith('/skins.json'):
@@ -38,8 +42,11 @@ def test_parses_bymykel_like_structures(monkeypatch, tmp_path):
     s = NameResolver.resolve_skin(60, 1017)
     assert s.item_name == "M4A1-S"
     assert s.paint_name == "Printstream"
+    assert s.image == "https://example.com/skin.png"
     assert NameResolver.resolve_sticker_name(5007) == "Movistar Riders (Holo) | Stockholm 2021"
+    assert NameResolver.resolve_sticker_image(5007) == "https://example.com/sticker.png"
     assert NameResolver.resolve_keychain_name(12) == "Charm | Lil' Ava"
+    assert NameResolver.resolve_keychain_image(12) == "https://example.com/keychain.png"
 
 
 def test_only_loads_on_miss(monkeypatch, tmp_path):
@@ -99,6 +106,9 @@ def test_persistent_cache_is_reused(monkeypatch, tmp_path):
     NameResolver._skin_by_pair = {(60, 1017): ("M4A1-S", "Printstream")}
     NameResolver._sticker_names = {5007: "Sticker | Example"}
     NameResolver._keychain_names = {1: "Charm | Lil' Ava"}
+    NameResolver._sticker_images = {5007: "https://example.com/sticker.png"}
+    NameResolver._keychain_images = {1: "https://example.com/keychain.png"}
+    NameResolver._skin_images = {(60, 1017): "https://example.com/skin.png"}
     NameResolver._save_state()
 
     # New process simulation: empty in-memory, reload from disk state
@@ -113,3 +123,6 @@ def test_persistent_cache_is_reused(monkeypatch, tmp_path):
     assert NameResolver.resolve_skin(60, 1017).item_name == "M4A1-S"
     assert NameResolver.resolve_sticker_name(5007) == "Sticker | Example"
     assert NameResolver.resolve_keychain_name(1) == "Charm | Lil' Ava"
+    assert NameResolver.resolve_skin(60, 1017).image == "https://example.com/skin.png"
+    assert NameResolver.resolve_sticker_image(5007) == "https://example.com/sticker.png"
+    assert NameResolver.resolve_keychain_image(1) == "https://example.com/keychain.png"

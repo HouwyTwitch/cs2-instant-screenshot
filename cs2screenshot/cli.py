@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import typer
 from rich import print as rprint
 from rich.table import Table
 
 from .decoder import decode
+from .renderer import build_item_render_html
 
 app = typer.Typer(
     name="cs2screenshot",
@@ -97,6 +99,23 @@ def decode_cmd(
             )
 
     rprint(table)
+
+
+@app.command(name="render")
+def render_cmd(
+    inspect_link: str = typer.Argument(..., metavar="INSPECT_LINK", help="CS2 inspect link"),
+    out: Path = typer.Option(Path("item-render.html"), "--out", help="Output HTML file"),
+) -> None:
+    """Generate an HTML preview that overlays stickers on top of the skin image."""
+    try:
+        data = decode(inspect_link)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    html = build_item_render_html(data)
+    out.write_text(html, encoding="utf-8")
+    typer.echo(str(out.resolve()))
 
 
 if __name__ == "__main__":

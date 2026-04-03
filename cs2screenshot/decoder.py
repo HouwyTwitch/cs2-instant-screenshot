@@ -232,6 +232,7 @@ def _decode_sticker(raw: bytes) -> StickerData:
         offset_y=_uint32_to_float(off_y_raw) if off_y_raw else 0.0,
         offset_z=offset_z,
         name=NameResolver.resolve_sticker_name(int(f.get(2, 0))),
+        image=NameResolver.resolve_sticker_image(int(f.get(2, 0))),
         pattern=int(f.get(10, 0)),
     )
 
@@ -243,6 +244,7 @@ def _decode_keychain(raw: bytes) -> KeychainData:
         keychain_id=int(f.get(2, 0)),
         pattern=int(f.get(10, 0)),
         name=NameResolver.resolve_keychain_name(int(f.get(2, 0))),
+        image=NameResolver.resolve_keychain_image(int(f.get(2, 0))),
     )
 
 
@@ -409,6 +411,7 @@ def decode(inspect_link: str) -> InspectData:
         quality=quality,
         item_name=skin_names.item_name,
         paint_name=skin_names.paint_name,
+        item_image=skin_names.image,
         stickers=stickers,
         keychains=keychains,
         asset_id=int(f.get(2, 0)),

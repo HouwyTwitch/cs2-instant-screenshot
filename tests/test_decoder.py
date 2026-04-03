@@ -414,8 +414,11 @@ class TestDecodeModern:
         monkeypatch.setattr(NameResolver, "_stickers_loaded", True)
         monkeypatch.setattr(NameResolver, "_keychains_loaded", True)
         monkeypatch.setattr(NameResolver, "_skin_by_pair", {(60, 1017): ("M4A1-S", "Printstream")})
+        monkeypatch.setattr(NameResolver, "_skin_images", {(60, 1017): "https://example.com/skin.png"})
         monkeypatch.setattr(NameResolver, "_sticker_names", {5007: "Movistar Riders (Holo) | Stockholm 2021"})
+        monkeypatch.setattr(NameResolver, "_sticker_images", {5007: "https://example.com/sticker.png"})
         monkeypatch.setattr(NameResolver, "_keychain_names", {12: "Hot Howl"})
+        monkeypatch.setattr(NameResolver, "_keychain_images", {12: "https://example.com/keychain.png"})
 
         sticker = _build_sticker(0, 5007)
         keychain = _build_sticker(1, 12)
@@ -423,5 +426,8 @@ class TestDecodeModern:
 
         assert data.item_name == "M4A1-S"
         assert data.paint_name == "Printstream"
+        assert data.item_image == "https://example.com/skin.png"
         assert data.stickers[0].name == "Movistar Riders (Holo) | Stockholm 2021"
+        assert data.stickers[0].image == "https://example.com/sticker.png"
         assert data.keychains[0].name == "Hot Howl"
+        assert data.keychains[0].image == "https://example.com/keychain.png"

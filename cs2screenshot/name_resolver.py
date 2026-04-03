@@ -18,6 +18,7 @@ import httpx
 class ResolvedNames:
     item_name: Optional[str]
     paint_name: Optional[str]
+    image: Optional[str] = None
 
 
 class NameResolver:
@@ -27,6 +28,9 @@ class NameResolver:
     _skin_by_pair: dict[tuple[int, int], tuple[str | None, str | None]] = {}
     _sticker_names: dict[int, str] = {}
     _keychain_names: dict[int, str] = {}
+    _sticker_images: dict[int, str] = {}
+    _keychain_images: dict[int, str] = {}
+    _skin_images: dict[tuple[int, int], str] = {}
     _state_loaded = False
     _last_failed_at: float = 0.0
     _FAIL_RETRY_SECONDS = 60 * 60 * 6
@@ -88,6 +92,15 @@ class NameResolver:
                             continue
                         if isinstance(v, str):
                             cls._sticker_names[sid] = v
+                sticker_images = data.get("sticker_images", {})
+                if isinstance(sticker_images, dict):
+                    for k, v in sticker_images.items():
+                        try:
+                            sid = int(k)
+                        except Exception:
+                            continue
+                        if isinstance(v, str):
+                            cls._sticker_images[sid] = v
 
                 keychain_names = data.get("keychain_names", {})
                 if isinstance(keychain_names, dict):
@@ -98,6 +111,26 @@ class NameResolver:
                             continue
                         if isinstance(v, str):
                             cls._keychain_names[kid] = v
+                keychain_images = data.get("keychain_images", {})
+                if isinstance(keychain_images, dict):
+                    for k, v in keychain_images.items():
+                        try:
+                            kid = int(k)
+                        except Exception:
+                            continue
+                        if isinstance(v, str):
+                            cls._keychain_images[kid] = v
+                skin_images = data.get("skin_images", {})
+                if isinstance(skin_images, dict):
+                    for k, v in skin_images.items():
+                        try:
+                            d, p = k.split(":")
+                            defindex = int(d)
+                            paintindex = int(p)
+                        except Exception:
+                            continue
+                        if isinstance(v, str):
+                            cls._skin_images[(defindex, paintindex)] = v
         except Exception:
             cls._last_failed_at = 0.0
 
@@ -110,6 +143,9 @@ class NameResolver:
             }
             sticker_names = {str(k): v for k, v in cls._sticker_names.items()}
             keychain_names = {str(k): v for k, v in cls._keychain_names.items()}
+            sticker_images = {str(k): v for k, v in cls._sticker_images.items()}
+            keychain_images = {str(k): v for k, v in cls._keychain_images.items()}
+            skin_images = {f"{d}:{p}": v for (d, p), v in cls._skin_images.items()}
             cls._STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
             cls._STATE_PATH.write_text(
                 json.dumps(
@@ -118,6 +154,9 @@ class NameResolver:
                         "skin_by_pair": skin_by_pair,
                         "sticker_names": sticker_names,
                         "keychain_names": keychain_names,
+                        "sticker_images": sticker_images,
+                        "keychain_images": keychain_images,
+                        "skin_images": skin_images,
                     }
                 ),
                 encoding="utf-8",
@@ -159,6 +198,9 @@ class NameResolver:
                     item_name = weapon.get("name") if isinstance(weapon.get("name"), str) else None
                     paint_name = pattern.get("name") if isinstance(pattern.get("name"), str) else None
                     cls._skin_by_pair[(defindex, paintindex)] = (item_name, paint_name)
+                    image = row.get("image")
+                    if isinstance(image, str):
+                        cls._skin_images[(defindex, paintindex)] = image
                 if cls._skin_by_pair:
                     cls._save_state()
         except Exception:
@@ -182,6 +224,9 @@ class NameResolver:
                     name = row.get("name")
                     if isinstance(sid, int) and isinstance(name, str):
                         cls._sticker_names[sid] = name
+                    image = row.get("image")
+                    if isinstance(sid, int) and isinstance(image, str):
+                        cls._sticker_images[sid] = image
                 if cls._sticker_names:
                     cls._save_state()
         except Exception:
@@ -205,6 +250,9 @@ class NameResolver:
                     name = row.get("name")
                     if isinstance(kid, int) and isinstance(name, str):
                         cls._keychain_names[kid] = name
+                    image = row.get("image")
+                    if isinstance(kid, int) and isinstance(image, str):
+                        cls._keychain_images[kid] = image
                 if cls._keychain_names:
                     cls._save_state()
         except Exception:
@@ -220,7 +268,11 @@ class NameResolver:
         if item_name is None and paint_name is None:
             cls._load_skins()
             item_name, paint_name = cls._skin_by_pair.get((defindex, paintindex), (None, None))
-        return ResolvedNames(item_name=item_name, paint_name=paint_name)
+        return ResolvedNames(
+            item_name=item_name,
+            paint_name=paint_name,
+            image=cls._skin_images.get((defindex, paintindex)),
+        )
 
     @classmethod
     def resolve_sticker_name(cls, sticker_id: int) -> Optional[str]:
@@ -231,9 +283,25 @@ class NameResolver:
         return name
 
     @classmethod
+    def resolve_sticker_image(cls, sticker_id: int) -> Optional[str]:
+        image = cls._sticker_images.get(sticker_id)
+        if image is None:
+            cls._load_stickers()
+            image = cls._sticker_images.get(sticker_id)
+        return image
+
+    @classmethod
     def resolve_keychain_name(cls, keychain_id: int) -> Optional[str]:
         name = cls._keychain_names.get(keychain_id)
         if name is None:
             cls._load_keychains()
             name = cls._keychain_names.get(keychain_id)
         return name
+
+    @classmethod
+    def resolve_keychain_image(cls, keychain_id: int) -> Optional[str]:
+        image = cls._keychain_images.get(keychain_id)
+        if image is None:
+            cls._load_keychains()
+            image = cls._keychain_images.get(keychain_id)
+        return image

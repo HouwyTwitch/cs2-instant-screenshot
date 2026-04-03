@@ -43,6 +43,7 @@ class StickerData:
     offset_y: float = 0.0
     offset_z: float = 0.0
     name: Optional[str] = None
+    image: Optional[str] = None
 
     def __repr__(self) -> str:
         wear_str = f", wear={self.wear:.4f}" if self.wear else ""
@@ -55,6 +56,7 @@ class KeychainData:
     keychain_id: int
     pattern: int = 0
     name: Optional[str] = None
+    image: Optional[str] = None
 
     def __repr__(self) -> str:
         return f"KeychainData(slot={self.slot}, keychain_id={self.keychain_id})"
@@ -78,6 +80,7 @@ class InspectData:
     quality: Optional[int]
     item_name: Optional[str] = None
     paint_name: Optional[str] = None
+    item_image: Optional[str] = None
 
     # Decorations
     stickers: list[StickerData] = field(default_factory=list)
@@ -132,6 +135,7 @@ class InspectData:
                     "offset_y": s.offset_y,
                     "offset_z": s.offset_z,
                     "name": s.name,
+                    "image": s.image,
                 }
                 for s in self.stickers
             ],
@@ -141,11 +145,13 @@ class InspectData:
                     "keychain_id": k.keychain_id,
                     "pattern": k.pattern,
                     "name": k.name,
+                    "image": k.image,
                 }
                 for k in self.keychains
             ],
             "item_name": self.item_name,
             "paint_name": self.paint_name,
+            "item_image": self.item_image,
             "asset_id": self.asset_id,
             "owner_steamid": self.owner_steamid,
             "market_id": self.market_id,
