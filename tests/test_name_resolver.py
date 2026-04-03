@@ -70,6 +70,7 @@ def test_failed_network_is_backed_off(monkeypatch, tmp_path):
     _reset()
     monkeypatch.setattr(NameResolver, "_STATE_PATH", tmp_path / "resolver.json")
     monkeypatch.setattr(NameResolver, "_FAIL_RETRY_SECONDS", 999999)
+    NameResolver._skin_by_pair[(7, 282)] = ("AK-47", "Redline")
 
     calls = {"skins": 0}
 

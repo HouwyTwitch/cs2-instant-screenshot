@@ -126,8 +126,12 @@ class NameResolver:
             return
 
     @classmethod
-    def _can_attempt_network(cls) -> bool:
+    def _can_attempt_network(cls, *, has_cached_data: bool) -> bool:
         cls._load_state()
+        # If we still have no cached data for this dataset, allow a retry so
+        # names can start resolving as soon as network becomes available.
+        if not has_cached_data:
+            return True
         if not cls._last_failed_at:
             return True
         return (time.time() - cls._last_failed_at) >= cls._FAIL_RETRY_SECONDS
@@ -138,10 +142,10 @@ class NameResolver:
             return
         cls._load_state()
         cls._skins_loaded = True
-        if not cls._can_attempt_network():
+        if not cls._can_attempt_network(has_cached_data=bool(cls._skin_by_pair)):
             return
         try:
-            with httpx.Client(timeout=0.8) as client:
+            with httpx.Client(timeout=0.5) as client:
                 skins = cls._fetch_json(client, cls._SKINS_URL)
                 for row in skins:
                     weapon = row.get("weapon") if isinstance(row.get("weapon"), dict) else {}
@@ -168,10 +172,10 @@ class NameResolver:
             return
         cls._load_state()
         cls._stickers_loaded = True
-        if not cls._can_attempt_network():
+        if not cls._can_attempt_network(has_cached_data=bool(cls._sticker_names)):
             return
         try:
-            with httpx.Client(timeout=0.8) as client:
+            with httpx.Client(timeout=0.5) as client:
                 stickers = cls._fetch_json(client, cls._STICKERS_URL)
                 for row in stickers:
                     sid = cls._to_int(row.get("def_index"))
@@ -191,10 +195,10 @@ class NameResolver:
             return
         cls._load_state()
         cls._keychains_loaded = True
-        if not cls._can_attempt_network():
+        if not cls._can_attempt_network(has_cached_data=bool(cls._keychain_names)):
             return
         try:
-            with httpx.Client(timeout=0.8) as client:
+            with httpx.Client(timeout=0.5) as client:
                 keychains = cls._fetch_json(client, cls._KEYCHAINS_URL)
                 for row in keychains:
                     kid = cls._to_int(row.get("def_index"))

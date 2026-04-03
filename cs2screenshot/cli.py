@@ -24,7 +24,7 @@ def _root() -> None:
 @app.command(name="decode")
 def decode_cmd(
     inspect_link: str = typer.Argument(..., metavar="INSPECT_LINK", help="CS2 inspect link"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    table_output: bool = typer.Option(False, "--table", help="Output as table instead of JSON"),
 ) -> None:
     """Decode a CS2 inspect link and print item parameters."""
     try:
@@ -33,7 +33,7 @@ def decode_cmd(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
 
-    if json_output:
+    if not table_output:
         typer.echo(json.dumps(data.to_dict(), indent=2))
         return
 
