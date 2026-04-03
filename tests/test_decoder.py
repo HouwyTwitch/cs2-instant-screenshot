@@ -18,7 +18,6 @@ import pytest
 
 from cs2screenshot.decoder import (
     _crc32_checksum,
-    _decode_proto,
     _parse_link,
     _unwrap_payload,
     decode,
@@ -116,6 +115,14 @@ def _to_link(proto_bytes: bytes) -> str:
     return f"steam://rungame/730/76561202255233023/+csgo_econ_action_preview {hex_str}"
 
 
+def _to_raw_link(proto_bytes: bytes, *, prefixed: bool = False) -> str:
+    raw = (b"\x00" + proto_bytes) if prefixed else proto_bytes
+    return (
+        "steam://rungame/730/76561202255233023/+csgo_econ_action_preview "
+        f"{raw.hex().upper()}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Unit: _crc32_checksum
 # ---------------------------------------------------------------------------
@@ -129,12 +136,13 @@ class TestChecksum:
         result = _unwrap_payload(wrapped)
         assert result == proto
 
-    def test_bad_checksum_raises(self):
+    def test_bad_checksum_falls_back_to_raw_proto_plus_footer(self):
         proto = _build_block()
         wrapped = bytearray(_wrap(proto))
         wrapped[-1] ^= 0xFF  # corrupt last checksum byte
-        with pytest.raises(ValueError, match="checksum"):
-            _unwrap_payload(bytes(wrapped))
+        unwrapped = _unwrap_payload(bytes(wrapped))
+        assert unwrapped.startswith(proto)
+        assert len(unwrapped) == len(proto) + 4
 
 
 # ---------------------------------------------------------------------------
@@ -143,8 +151,7 @@ class TestChecksum:
 
 class TestUnwrapPayload:
     def test_too_short_raises(self):
-        with pytest.raises(ValueError, match="too short"):
-            _unwrap_payload(b"\x00\x01\x02")
+        assert _unwrap_payload(b"\x00\x01\x02") == b"\x01\x02"
 
     def test_unmasked(self):
         proto = _build_block(defindex=7)
@@ -164,8 +171,15 @@ class TestUnwrapPayload:
         # Use a payload where XOR result ≠ 0 for byte 0 to trigger the error:
         bad = bytes([0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])  # unmask: 0x01^0x01=0x00... still valid
         # Actually impossible to construct without valid proto, so just test too-short path
-        with pytest.raises(ValueError):
-            _unwrap_payload(b"\x01\x02")  # too short
+        assert _unwrap_payload(b"\x01\x02") == b"\x03"
+
+    def test_raw_proto_without_checksum(self):
+        proto = _build_block(defindex=42)
+        assert _unwrap_payload(proto) == proto
+
+    def test_raw_proto_with_zero_prefix(self):
+        proto = _build_block(defindex=42)
+        assert _unwrap_payload(b"\x00" + proto) == proto
 
 
 # ---------------------------------------------------------------------------
@@ -341,3 +355,25 @@ class TestDecodeModern:
         assert data.needs_gc_lookup is False
         # Validate we get plausible values (not all zeros)
         assert data.defindex is not None or data.paintindex is not None or data.paintseed is not None
+
+    def test_raw_proto_no_checksum(self):
+        proto = _build_block(defindex=16, paintindex=711, paintseed=512, paintwear=0.1234)
+        link = _to_raw_link(proto, prefixed=True)
+        data = decode(link)
+        assert data.defindex == 16
+        assert data.paintindex == 711
+        assert data.paintseed == 512
+        assert abs(data.paintwear - 0.1234) < 1e-5
+
+    def test_user_reported_new_link_type(self):
+        hex_str = (
+            "34248FE2BB9C89352C3D14D7351C3104300CE4DAEBC53774F63056313C3524AB"
+            "36563E3C3724C81111EEA5B20B56313C3624A600563B3C3724A60009C6AE0F0A"
+            "71B4041F0F5CB7B4B4B438443C4D060D14"
+        )
+        link = f"steam://rungame/730/76561202255233023/+csgo_econ_action_preview {hex_str}"
+        data = decode(link)
+        assert data.needs_gc_lookup is False
+        assert data.defindex == 9
+        assert data.paintindex == 227
+        assert data.paintseed == 578

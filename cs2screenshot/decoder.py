@@ -74,6 +74,7 @@ from .models import InspectData, KeychainData, StickerData
 # Minimal self-contained protobuf binary decoder
 # ---------------------------------------------------------------------------
 
+
 def _read_varint(data: bytes, pos: int) -> tuple[int, int]:
     """Read a varint at *pos*. Returns ``(value, new_pos)``."""
     result = 0
@@ -89,16 +90,7 @@ def _read_varint(data: bytes, pos: int) -> tuple[int, int]:
 
 
 def _decode_proto(data: bytes) -> dict[int, object]:
-    """Decode a flat protobuf message into ``{field_number: value}``.
-
-    Wire types:
-    * 0 — varint  → ``int``
-    * 1 — 64-bit  → ``int`` (little-endian uint64)
-    * 2 — length-delimited → ``bytes``
-    * 5 — 32-bit  → ``int`` (little-endian uint32; reinterpret as float when needed)
-
-    Repeated fields are stored as ``list``.
-    """
+    """Decode a flat protobuf message into ``{field_number: value}``."""
     result: dict[int, object] = {}
     pos = 0
     n = len(data)
@@ -112,13 +104,19 @@ def _decode_proto(data: bytes) -> dict[int, object]:
             value: object
             value, pos = _read_varint(data, pos)
         elif wire_type == 1:
+            if pos + 8 > n:
+                raise ValueError("Truncated 64-bit field in protobuf data")
             value = struct.unpack_from("<Q", data, pos)[0]
             pos += 8
         elif wire_type == 2:
             length, pos = _read_varint(data, pos)
+            if pos + length > n:
+                raise ValueError("Truncated length-delimited field in protobuf data")
             value = data[pos : pos + length]
             pos += length
         elif wire_type == 5:
+            if pos + 4 > n:
+                raise ValueError("Truncated 32-bit field in protobuf data")
             value = struct.unpack_from("<I", data, pos)[0]
             pos += 4
         else:
@@ -140,7 +138,6 @@ def _as_list(val: object) -> list:
     if val is None:
         return []
     return val if isinstance(val, list) else [val]
-
 
 def _uint32_to_float(v: int) -> float:
     return struct.unpack("<f", struct.pack("<I", v))[0]
@@ -173,32 +170,37 @@ def _xor_mask(data: bytes, key: int) -> bytes:
 
 
 def _unwrap_payload(raw: bytes) -> bytes:
-    """Unwrap the hex blob and return the raw protobuf bytes.
+    """Unwrap modern inspect hex and return protobuf bytes.
 
-    Layout (unmasked):  [0x00][proto...][checksum 4B big-endian]
-    Layout (masked):    [key][XOR(key, 0x00 || proto... || checksum)]
+    Supported modern encodings:
+    * Wrapped (legacy-modern): [0x00][proto...][checksum 4B big-endian]
+    * Wrapped XOR:             [key] XOR(key, 0x00 || proto... || checksum)
+    * Raw proto:               [proto...]
+    * Raw proto + 0x00 prefix: [0x00][proto...]
+    * Raw proto XOR:           [key] XOR(key, 0x00 || proto...)  (new links)
     """
-    if len(raw) < 5:
+    if len(raw) < 2:
         raise ValueError("Inspect hex payload is too short")
 
-    if raw[0] != 0:
-        # Masked: XOR every byte with raw[0]
+    # If first byte doesn't look like a protobuf tag start, treat it as XOR key.
+    # Common first-byte values for unmasked payloads are 0x00, 0x08, 0x10, 0x18, 0x20.
+    if raw[0] not in (0x00, 0x08, 0x10, 0x18, 0x20):
         raw = _xor_mask(raw, raw[0])
-        if raw[0] != 0:
-            raise ValueError("Invalid inspect hex payload (bad mask)")
 
-    # raw[0] == 0x00
-    proto_bytes = raw[1:-4]
-    expected_csum = struct.unpack_from(">I", raw, len(raw) - 4)[0]
-    actual_csum = _crc32_checksum(proto_bytes)
+    if raw[0] == 0x00:
+        # First try wrapped payload with checksum.
+        if len(raw) >= 5:
+            wrapped_proto = raw[1:-4]
+            expected_csum = struct.unpack_from(">I", raw, len(raw) - 4)[0]
+            actual_csum = _crc32_checksum(wrapped_proto)
+            if expected_csum == actual_csum:
+                return wrapped_proto
+            # Some newer links are protobuf + trailing 4-byte footer that does not
+            # match historical checksum. Keep both candidates for parser fallback.
+            return raw[1:]
+        return raw[1:]
 
-    if expected_csum != actual_csum:
-        raise ValueError(
-            f"Inspect hex checksum mismatch "
-            f"(expected {expected_csum:#010x}, got {actual_csum:#010x})"
-        )
-
-    return proto_bytes
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -332,22 +334,31 @@ def decode(inspect_link: str) -> InspectData:
     # Modern hex payload
     raw = bytes.fromhex(params["hex"])
     proto_bytes = _unwrap_payload(raw)
-    f = _decode_proto(proto_bytes)
+    parse_error: Optional[Exception] = None
+    f: dict[int, object] = {}
+    for candidate in (proto_bytes, proto_bytes[:-4] if len(proto_bytes) > 4 else b""):
+        if not candidate:
+            continue
+        try:
+            f = _decode_proto(candidate)
+            parse_error = None
+            break
+        except Exception as exc:
+            parse_error = exc
+            continue
+    if parse_error is not None:
+        raise ValueError(f"Invalid inspect protobuf payload: {parse_error}") from parse_error
 
     defindex = int(f[3]) if 3 in f else None
     paintindex = int(f[4]) if 4 in f else None
     rarity = int(f[5]) if 5 in f else None
     quality = int(f[6]) if 6 in f else 4
 
-    # field 7 = paintwear stored as raw float32 bits (uint32)
     paintwear: Optional[float] = None
     if 7 in f:
         paintwear = _uint32_to_float(int(f[7]))
 
     paintseed = int(f[8]) if 8 in f else None
-
-    # field 9 = killeaterscoretype, field 10 = killeatervalue
-    killeater_type = int(f[9]) if 9 in f else None
     killeater_value = int(f[10]) if 10 in f else None
 
     # StatTrak: quality 12 = unusual/stattrak in CS2
@@ -381,8 +392,8 @@ def decode(inspect_link: str) -> InspectData:
         quality=quality,
         stickers=stickers,
         keychains=keychains,
-        asset_id=int(f.get(2, 0)),  # itemid
-        owner_steamid=int(f.get(1, 0)),  # accountid
+        asset_id=int(f.get(2, 0)),
+        owner_steamid=int(f.get(1, 0)),
         market_id=0,
         d_param="",
         inspect_link=inspect_link,
