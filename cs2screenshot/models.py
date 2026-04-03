@@ -38,6 +38,10 @@ class StickerData:
     pattern: int = 0
     scale: float = 0.0
     rotation: float = 0.0
+    tint_id: int = 0
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+    offset_z: float = 0.0
 
     def __repr__(self) -> str:
         wear_str = f", wear={self.wear:.4f}" if self.wear else ""
@@ -117,6 +121,12 @@ class InspectData:
                     "sticker_id": s.sticker_id,
                     "wear": s.wear,
                     "pattern": s.pattern,
+                    "scale": s.scale,
+                    "rotation": s.rotation,
+                    "tint_id": s.tint_id,
+                    "offset_x": s.offset_x,
+                    "offset_y": s.offset_y,
+                    "offset_z": s.offset_z,
                 }
                 for s in self.stickers
             ],
