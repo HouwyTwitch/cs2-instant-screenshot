@@ -70,10 +70,16 @@ def decode_cmd(
     if data.stickers:
         table.add_section()
         for i, s in enumerate(data.stickers):
+            extra = ""
+            if s.offset_x or s.offset_y or s.offset_z:
+                extra += f"  x={s.offset_x:.4f} y={s.offset_y:.4f} z={s.offset_z:.4f}"
+            if s.rotation:
+                extra += f"  r={s.rotation:.4f}"
             row(
                 f"Sticker [{i}]",
                 f"slot={s.slot}  id={s.sticker_id}"
-                + (f"  wear={s.wear:.4f}" if s.wear else ""),
+                + (f"  wear={s.wear:.4f}" if s.wear else "")
+                + extra,
             )
 
     if data.keychains:

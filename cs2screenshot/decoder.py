@@ -212,12 +212,19 @@ def _decode_sticker(raw: bytes) -> StickerData:
     wear_raw = f.get(3, 0)
     scale_raw = f.get(4, 0)
     rot_raw = f.get(5, 0)
+    off_x_raw = f.get(7, 0)
+    off_y_raw = f.get(8, 0)
+    off_z_raw = f.get(9, 0)
     return StickerData(
         slot=int(f.get(1, 0)),
         sticker_id=int(f.get(2, 0)),
         wear=_uint32_to_float(wear_raw) if wear_raw else 0.0,
         scale=_uint32_to_float(scale_raw) if scale_raw else 0.0,
         rotation=_uint32_to_float(rot_raw) if rot_raw else 0.0,
+        tint_id=int(f.get(6, 0)),
+        offset_x=_uint32_to_float(off_x_raw) if off_x_raw else 0.0,
+        offset_y=_uint32_to_float(off_y_raw) if off_y_raw else 0.0,
+        offset_z=_uint32_to_float(off_z_raw) if off_z_raw else 0.0,
         pattern=int(f.get(10, 0)),
     )
 

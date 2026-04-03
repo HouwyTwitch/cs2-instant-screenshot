@@ -377,3 +377,16 @@ class TestDecodeModern:
         assert data.defindex == 9
         assert data.paintindex == 227
         assert data.paintseed == 578
+
+    def test_sticker_offsets_are_decoded(self):
+        hex_str = (
+            "00183C20F90728053004389C8EFDE703408201620A0803108F271D00000000"
+            "620A0801108F271D00000000620A0802108F271D00000000620A0800108F271D"
+            "0000000062140804108F271D000000003D2508873E4500D9893A7B316755"
+        )
+        link = f"steam://rungame/730/76561202255233023/+csgo_econ_action_preview {hex_str}"
+        data = decode(link)
+        assert len(data.stickers) == 5
+        s = data.stickers[4]
+        assert abs(s.offset_x - 0.2637) < 1e-4
+        assert abs(s.offset_y - 0.0011) < 1e-4
