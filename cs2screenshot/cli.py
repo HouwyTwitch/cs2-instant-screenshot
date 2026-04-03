@@ -105,6 +105,11 @@ def decode_cmd(
 def render_cmd(
     inspect_link: str = typer.Argument(..., metavar="INSPECT_LINK", help="CS2 inspect link"),
     out: Path = typer.Option(Path("item-render.html"), "--out", help="Output HTML file"),
+    inline_images: bool = typer.Option(
+        True,
+        "--inline-images/--no-inline-images",
+        help="Download images and embed as data URIs to avoid browser CORS issues.",
+    ),
 ) -> None:
     """Generate an HTML preview that overlays stickers on top of the skin image."""
     try:
@@ -113,7 +118,7 @@ def render_cmd(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
 
-    html = build_item_render_html(data)
+    html = build_item_render_html(data, inline_images=inline_images)
     out.write_text(html, encoding="utf-8")
     typer.echo(str(out.resolve()))
 

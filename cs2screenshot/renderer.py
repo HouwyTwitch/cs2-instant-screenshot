@@ -1,12 +1,52 @@
 """Browser-based renderer HTML builder for inspect data."""
 from __future__ import annotations
 
+import base64
 import json
+from typing import Any
+
+import httpx
 
 from .models import InspectData
 
 
-def build_item_render_html(data: InspectData) -> str:
+def _inline_image_urls(payload: dict[str, Any], timeout: float = 4.0) -> dict[str, Any]:
+    """Replace remote image URLs in payload with data: URIs (best effort)."""
+    urls: set[str] = set()
+    if isinstance(payload.get("item_image"), str):
+        urls.add(payload["item_image"])
+    for s in payload.get("stickers", []):
+        if isinstance(s, dict) and isinstance(s.get("image"), str):
+            urls.add(s["image"])
+
+    if not urls:
+        return payload
+
+    encoded: dict[str, str] = {}
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            for url in urls:
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    content_type = resp.headers.get("content-type", "image/png").split(";")[0]
+                    b64 = base64.b64encode(resp.content).decode("ascii")
+                    encoded[url] = f"data:{content_type};base64,{b64}"
+                except Exception:
+                    continue
+    except Exception:
+        return payload
+
+    if isinstance(payload.get("item_image"), str):
+        payload["item_image"] = encoded.get(payload["item_image"], payload["item_image"])
+    for s in payload.get("stickers", []):
+        if isinstance(s, dict) and isinstance(s.get("image"), str):
+            s["image"] = encoded.get(s["image"], s["image"])
+
+    return payload
+
+
+def build_item_render_html(data: InspectData, *, inline_images: bool = False) -> str:
     """Return an HTML document that renders skin + sticker overlays via Canvas.
 
     Notes:
@@ -31,6 +71,8 @@ def build_item_render_html(data: InspectData) -> str:
             for s in data.stickers
         ],
     }
+    if inline_images:
+        payload = _inline_image_urls(payload)
 
     # Default fallback positions for stickers with no explicit offsets
     slot_positions = {
