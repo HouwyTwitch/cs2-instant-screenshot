@@ -144,6 +144,17 @@ def _uint32_to_float(v: int) -> float:
     return struct.unpack("<f", struct.pack("<I", v))[0]
 
 
+def _sticker_image_url(sticker_id: int, wear: float) -> str:
+    wear_pct = max(0, min(100, int(round(wear * 100))))
+    return f"https://cdn.cs2inspects.com/stickers/{sticker_id}/{wear_pct}.webp"
+
+
+def _item_image_url(defindex: Optional[int], paintindex: Optional[int], paintseed: Optional[int]) -> Optional[str]:
+    if defindex is None or paintindex is None or paintseed is None:
+        return None
+    return f"https://cdn.cs2inspects.com/customizer/{defindex}_{paintindex}_{paintseed}.webp"
+
+
 # ---------------------------------------------------------------------------
 # Checksum (matches csfloat/cs-inspect-serializer getChecksum)
 # ---------------------------------------------------------------------------
@@ -221,18 +232,20 @@ def _decode_sticker(raw: bytes) -> StickerData:
     if not rotation and offset_z:
         rotation = offset_z
 
+    sticker_id = int(f.get(2, 0))
+    wear = _uint32_to_float(wear_raw) if wear_raw else 0.0
     return StickerData(
         slot=int(f.get(1, 0)),
-        sticker_id=int(f.get(2, 0)),
-        wear=_uint32_to_float(wear_raw) if wear_raw else 0.0,
+        sticker_id=sticker_id,
+        wear=wear,
         scale=_uint32_to_float(scale_raw) if scale_raw else 0.0,
         rotation=rotation,
         tint_id=int(f.get(6, 0)),
         offset_x=_uint32_to_float(off_x_raw) if off_x_raw else 0.0,
         offset_y=_uint32_to_float(off_y_raw) if off_y_raw else 0.0,
         offset_z=offset_z,
-        name=NameResolver.resolve_sticker_name(int(f.get(2, 0))),
-        image=NameResolver.resolve_sticker_image(int(f.get(2, 0))),
+        name=NameResolver.resolve_sticker_name(sticker_id),
+        image=_sticker_image_url(sticker_id, wear) or NameResolver.resolve_sticker_image(sticker_id),
         pattern=int(f.get(10, 0)),
     )
 
@@ -398,6 +411,7 @@ def decode(inspect_link: str) -> InspectData:
     ]
 
     skin_names = NameResolver.resolve_skin(defindex, paintindex)
+    item_image = _item_image_url(defindex, paintindex, paintseed) or skin_names.image
 
     return InspectData(
         defindex=defindex,
@@ -411,7 +425,7 @@ def decode(inspect_link: str) -> InspectData:
         quality=quality,
         item_name=skin_names.item_name,
         paint_name=skin_names.paint_name,
-        item_image=skin_names.image,
+        item_image=item_image,
         stickers=stickers,
         keychains=keychains,
         asset_id=int(f.get(2, 0)),

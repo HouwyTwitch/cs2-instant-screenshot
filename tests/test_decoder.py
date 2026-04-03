@@ -409,6 +409,11 @@ class TestDecodeModern:
         assert abs(s.offset_y - 0.1) < 1e-4
         assert abs(s.rotation - 0.6) < 1e-4
 
+    def test_sticker_image_uses_cs2inspects_wear_percent(self):
+        sticker = _build_sticker(0, 5007, wear=0.134)
+        data = self._make(stickers=[sticker])
+        assert data.stickers[0].image == "https://cdn.cs2inspects.com/stickers/5007/13.webp"
+
     def test_name_resolution_from_cache(self, monkeypatch):
         monkeypatch.setattr(NameResolver, "_skins_loaded", True)
         monkeypatch.setattr(NameResolver, "_stickers_loaded", True)
@@ -426,8 +431,8 @@ class TestDecodeModern:
 
         assert data.item_name == "M4A1-S"
         assert data.paint_name == "Printstream"
-        assert data.item_image == "https://example.com/skin.png"
+        assert data.item_image == "https://cdn.cs2inspects.com/customizer/60_1017_500.webp"
         assert data.stickers[0].name == "Movistar Riders (Holo) | Stockholm 2021"
-        assert data.stickers[0].image == "https://example.com/sticker.png"
+        assert data.stickers[0].image == "https://cdn.cs2inspects.com/stickers/5007/0.webp"
         assert data.keychains[0].name == "Hot Howl"
         assert data.keychains[0].image == "https://example.com/keychain.png"
