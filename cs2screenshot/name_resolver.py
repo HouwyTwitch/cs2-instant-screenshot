@@ -63,15 +63,63 @@ class NameResolver:
             if cls._STATE_PATH.exists():
                 data = json.loads(cls._STATE_PATH.read_text(encoding="utf-8"))
                 cls._last_failed_at = float(data.get("last_failed_at", 0.0))
+                skin_by_pair = data.get("skin_by_pair", {})
+                if isinstance(skin_by_pair, dict):
+                    parsed: dict[tuple[int, int], tuple[str | None, str | None]] = {}
+                    for k, v in skin_by_pair.items():
+                        try:
+                            d, p = k.split(":")
+                            defindex = int(d)
+                            paintindex = int(p)
+                        except Exception:
+                            continue
+                        if isinstance(v, list) and len(v) == 2:
+                            item_name = v[0] if isinstance(v[0], str) else None
+                            paint_name = v[1] if isinstance(v[1], str) else None
+                            parsed[(defindex, paintindex)] = (item_name, paint_name)
+                    cls._skin_by_pair.update(parsed)
+
+                sticker_names = data.get("sticker_names", {})
+                if isinstance(sticker_names, dict):
+                    for k, v in sticker_names.items():
+                        try:
+                            sid = int(k)
+                        except Exception:
+                            continue
+                        if isinstance(v, str):
+                            cls._sticker_names[sid] = v
+
+                keychain_names = data.get("keychain_names", {})
+                if isinstance(keychain_names, dict):
+                    for k, v in keychain_names.items():
+                        try:
+                            kid = int(k)
+                        except Exception:
+                            continue
+                        if isinstance(v, str):
+                            cls._keychain_names[kid] = v
         except Exception:
             cls._last_failed_at = 0.0
 
     @classmethod
     def _save_state(cls) -> None:
         try:
+            skin_by_pair = {
+                f"{d}:{p}": [item_name, paint_name]
+                for (d, p), (item_name, paint_name) in cls._skin_by_pair.items()
+            }
+            sticker_names = {str(k): v for k, v in cls._sticker_names.items()}
+            keychain_names = {str(k): v for k, v in cls._keychain_names.items()}
             cls._STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
             cls._STATE_PATH.write_text(
-                json.dumps({"last_failed_at": cls._last_failed_at}),
+                json.dumps(
+                    {
+                        "last_failed_at": cls._last_failed_at,
+                        "skin_by_pair": skin_by_pair,
+                        "sticker_names": sticker_names,
+                        "keychain_names": keychain_names,
+                    }
+                ),
                 encoding="utf-8",
             )
         except Exception:
@@ -88,6 +136,7 @@ class NameResolver:
     def _load_skins(cls) -> None:
         if cls._skins_loaded:
             return
+        cls._load_state()
         cls._skins_loaded = True
         if not cls._can_attempt_network():
             return
@@ -106,6 +155,8 @@ class NameResolver:
                     item_name = weapon.get("name") if isinstance(weapon.get("name"), str) else None
                     paint_name = pattern.get("name") if isinstance(pattern.get("name"), str) else None
                     cls._skin_by_pair[(defindex, paintindex)] = (item_name, paint_name)
+                if cls._skin_by_pair:
+                    cls._save_state()
         except Exception:
             cls._last_failed_at = time.time()
             cls._save_state()
@@ -115,6 +166,7 @@ class NameResolver:
     def _load_stickers(cls) -> None:
         if cls._stickers_loaded:
             return
+        cls._load_state()
         cls._stickers_loaded = True
         if not cls._can_attempt_network():
             return
@@ -126,6 +178,8 @@ class NameResolver:
                     name = row.get("name")
                     if isinstance(sid, int) and isinstance(name, str):
                         cls._sticker_names[sid] = name
+                if cls._sticker_names:
+                    cls._save_state()
         except Exception:
             cls._last_failed_at = time.time()
             cls._save_state()
@@ -135,6 +189,7 @@ class NameResolver:
     def _load_keychains(cls) -> None:
         if cls._keychains_loaded:
             return
+        cls._load_state()
         cls._keychains_loaded = True
         if not cls._can_attempt_network():
             return
@@ -146,6 +201,8 @@ class NameResolver:
                     name = row.get("name")
                     if isinstance(kid, int) and isinstance(name, str):
                         cls._keychain_names[kid] = name
+                if cls._keychain_names:
+                    cls._save_state()
         except Exception:
             cls._last_failed_at = time.time()
             cls._save_state()
