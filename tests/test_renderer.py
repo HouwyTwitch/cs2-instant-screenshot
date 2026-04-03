@@ -36,3 +36,4 @@ def test_build_item_render_html_contains_payload():
     assert "https://example.com/sticker.png" in html
     assert "Approximate preview" in html
     assert "canvas" in html
+    assert "Download PNG" in html

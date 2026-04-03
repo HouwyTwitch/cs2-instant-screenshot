@@ -57,6 +57,7 @@ def build_item_render_html(data: InspectData) -> str:
 <body>
   <div class=\"wrap\">
     <h2 id=\"title\"></h2>
+    <div><button id=\"saveBtn\">Download PNG</button></div>
     <canvas id=\"c\" width=\"1024\" height=\"768\"></canvas>
     <div class=\"meta\">Approximate preview based on inspect metadata.</div>
   </div>
@@ -69,6 +70,7 @@ def build_item_render_html(data: InspectData) -> str:
 
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
+    const saveBtn = document.getElementById('saveBtn');
 
     function loadImage(src) {{
       return new Promise((resolve, reject) => {{
@@ -130,6 +132,14 @@ def build_item_render_html(data: InspectData) -> str:
     }}
 
     render();
+
+    saveBtn.addEventListener('click', () => {{
+      const a = document.createElement('a');
+      const safeName = (title || 'cs2-item').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      a.download = `${{safeName || 'cs2-item'}}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }});
   </script>
 </body>
 </html>
