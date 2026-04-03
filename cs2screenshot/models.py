@@ -38,6 +38,11 @@ class StickerData:
     pattern: int = 0
     scale: float = 0.0
     rotation: float = 0.0
+    tint_id: int = 0
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+    offset_z: float = 0.0
+    name: Optional[str] = None
 
     def __repr__(self) -> str:
         wear_str = f", wear={self.wear:.4f}" if self.wear else ""
@@ -49,6 +54,7 @@ class KeychainData:
     slot: int
     keychain_id: int
     pattern: int = 0
+    name: Optional[str] = None
 
     def __repr__(self) -> str:
         return f"KeychainData(slot={self.slot}, keychain_id={self.keychain_id})"
@@ -70,6 +76,8 @@ class InspectData:
     souvenir: Optional[bool]
     rarity: Optional[int]
     quality: Optional[int]
+    item_name: Optional[str] = None
+    paint_name: Optional[str] = None
 
     # Decorations
     stickers: list[StickerData] = field(default_factory=list)
@@ -117,6 +125,13 @@ class InspectData:
                     "sticker_id": s.sticker_id,
                     "wear": s.wear,
                     "pattern": s.pattern,
+                    "scale": s.scale,
+                    "rotation": s.rotation,
+                    "tint_id": s.tint_id,
+                    "offset_x": s.offset_x,
+                    "offset_y": s.offset_y,
+                    "offset_z": s.offset_z,
+                    "name": s.name,
                 }
                 for s in self.stickers
             ],
@@ -125,9 +140,12 @@ class InspectData:
                     "slot": k.slot,
                     "keychain_id": k.keychain_id,
                     "pattern": k.pattern,
+                    "name": k.name,
                 }
                 for k in self.keychains
             ],
+            "item_name": self.item_name,
+            "paint_name": self.paint_name,
             "asset_id": self.asset_id,
             "owner_steamid": self.owner_steamid,
             "market_id": self.market_id,
