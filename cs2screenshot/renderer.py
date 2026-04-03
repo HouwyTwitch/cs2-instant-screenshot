@@ -54,6 +54,7 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
     - Sticker offsets/rotation/scale are applied when available.
     """
     payload = {
+        "defindex": data.defindex,
         "item_image": data.item_image,
         "item_name": data.item_name,
         "paint_name": data.paint_name,
@@ -76,11 +77,21 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
 
     # Default fallback positions for stickers with no explicit offsets
     slot_positions = {
-        0: [0.22, 0.70],
-        1: [0.38, 0.62],
-        2: [0.53, 0.54],
-        3: [0.67, 0.46],
-        4: [0.80, 0.38],
+        "default": {
+            0: [0.25, 0.60],
+            1: [0.40, 0.54],
+            2: [0.53, 0.48],
+            3: [0.66, 0.42],
+            4: [0.78, 0.36],
+        },
+        # AK-47 tuned anchors (defindex 7): closer to cs2inspects customizer layout.
+        "7": {
+            0: [0.30, 0.33],
+            1: [0.50, 0.32],
+            2: [0.58, 0.31],
+            3: [0.66, 0.30],
+            4: [0.38, 0.31],
+        },
     }
 
     return f"""<!doctype html>
@@ -127,10 +138,17 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
     async function render() {{
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
+      let skinRect = {{ x: 0, y: 0, w: canvas.width, h: canvas.height }};
       if (data.item_image) {{
         try {{
           const skin = await loadImage(data.item_image);
-          ctx.drawImage(skin, 0, 0, canvas.width, canvas.height);
+          const scale = Math.min(canvas.width / skin.width, canvas.height / skin.height);
+          const w = skin.width * scale;
+          const h = skin.height * scale;
+          const x = (canvas.width - w) / 2;
+          const y = (canvas.height - h) / 2;
+          skinRect = {{ x, y, w, h }};
+          ctx.drawImage(skin, x, y, w, h);
         }} catch (e) {{
           ctx.fillStyle = '#333';
           ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -147,17 +165,19 @@ def build_item_render_html(data: InspectData, *, inline_images: bool = False) ->
         try {{
           const img = await loadImage(s.image);
           const hasOffset = Math.abs(s.offset_x || 0) > 1e-6 || Math.abs(s.offset_y || 0) > 1e-6;
-          const fallback = slotPos[s.slot] || [0.5, 0.5];
-          const nx = hasOffset ? (0.5 + (s.offset_x || 0) * 0.25) : fallback[0];
-          const ny = hasOffset ? (0.5 - (s.offset_y || 0) * 0.25) : fallback[1];
+          const weaponAnchors = slotPos[String(data.defindex)] || slotPos.default;
+          const fallback = weaponAnchors[s.slot] || slotPos.default[s.slot] || [0.5, 0.5];
+          const offsetMul = 0.035;
+          const nx = fallback[0] + (s.offset_x || 0) * offsetMul;
+          const ny = fallback[1] - (s.offset_y || 0) * offsetMul;
 
-          const x = nx * canvas.width;
-          const y = ny * canvas.height;
+          const x = skinRect.x + nx * skinRect.w;
+          const y = skinRect.y + ny * skinRect.h;
 
-          const baseScale = 0.22;
+          const baseScale = (String(data.defindex) === '7') ? 0.11 : 0.14;
           const customScale = s.scale && s.scale > 0 ? s.scale : 1.0;
-          const w = img.width * baseScale * customScale;
-          const h = img.height * baseScale * customScale;
+          const w = skinRect.w * baseScale * customScale;
+          const h = w * (img.height / img.width);
 
           const rotDeg = s.rotation || 0;
           const rot = rotDeg * Math.PI / 180;
