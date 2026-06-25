@@ -119,14 +119,64 @@ _HTML_TEMPLATE = r"""<!doctype html>
     #scene {
       position: relative; width: 1920px; height: 1080px;
       transform: scale(0.5); transform-origin: top left;
+      background: linear-gradient(135deg, #2a2a2a 0%, #111 100%);
+    }
+    .skin-placeholder {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, #ffbf6b 0%, #8a4a21 35%, #1b120f 100%);
+      border: 2px solid rgba(255,255,255,0.18);
+      box-shadow: inset 0 0 120px rgba(255,255,255,0.20);
+      z-index: 0;
+    }
+    .weapon-fallback {
+      position: absolute; inset: 0;
+      background: linear-gradient(115deg, #3f2b1f 0%, #7c4d23 24%, #c98a40 50%, #6d3a1d 78%, #24150d 100%);
+      z-index: 1;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .weapon-fallback::before {
+      content: "";
+      position: absolute;
+      inset: 10% 20% 14% 24%;
+      border-radius: 50% 46% 44% 50%;
+      border: 4px solid rgba(255,255,255,0.22);
+      transform: rotate(-8deg);
+      box-shadow: inset 0 0 60px rgba(0,0,0,0.35), 0 0 60px rgba(0,0,0,0.18);
+    }
+    .weapon-fallback::after {
+      content: "";
+      position: absolute;
+      inset: 12% 22% 14% 26%;
+      background: linear-gradient(90deg, rgba(255,255,255,0.16) 0%, transparent 35%, rgba(0,0,0,0.28) 100%);
+      clip-path: polygon(8% 20%, 24% 16%, 72% 16%, 92% 24%, 94% 40%, 82% 58%, 70% 70%, 48% 80%, 22% 78%, 10% 64%, 6% 42%);
+      opacity: 0.95;
+    }
+    .weapon-silhouette {
+      position: absolute; inset: 0;
+      background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.10) 0%, transparent 28%),
+                        linear-gradient(112deg, rgba(255,255,255,0.14) 0%, transparent 42%, rgba(0,0,0,0.24) 100%);
+      clip-path: polygon(12% 36%, 32% 28%, 46% 22%, 56% 22%, 70% 24%, 80% 30%, 90% 38%, 89% 48%, 82% 60%, 68% 70%, 54% 76%, 38% 78%, 24% 70%, 14% 58%, 10% 46%);
+      z-index: 2;
+      pointer-events: none;
     }
     #scene img.skin {
       position: absolute; top: 0; left: 0; width: 1920px; height: 1080px;
       object-fit: contain;
+      display: block;
+      background: linear-gradient(135deg, #2a2a2a 0%, #111 100%);
     }
     #scene .sticker {
       position: absolute; pointer-events: none;
       transform-origin: center center;
+      z-index: 3;
+    }
+    .sticker-slot {
+      position: absolute; width: 18px; height: 18px; border-radius: 50%;
+      background: rgba(255,255,255,0.9); border: 2px solid rgba(0,0,0,0.5);
+      transform: translate(-50%, -50%);
+      z-index: 4;
+      pointer-events: none;
     }
     #scene .sticker img { width: 100%; height: 100%; display: block; }
     .meta { color: #bbb; font-size: 13px; }
@@ -175,13 +225,14 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const DEFAULT_STICKER_H = 104;
 
     // Generic fallback slot positions for a 1920x1080 weapon canvas.
-    // Stickers go along the body of a rifle, roughly centered vertically.
+    // These values are centered on the weapon body instead of cancelling the
+    // slot position out in the coordinate formula.
     const GENERIC_SLOTS = {
-      0: { x: 390, y: 440, offsetX: 390, offsetY: 440, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
-      1: { x: 590, y: 430, offsetX: 590, offsetY: 430, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
-      2: { x: 790, y: 420, offsetX: 790, offsetY: 420, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
-      3: { x: 990, y: 410, offsetX: 990, offsetY: 410, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
-      4: { x: 1190, y: 400, offsetX: 1190, offsetY: 400, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      0: { x: 760, y: 420, offsetX: 0, offsetY: 0, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      1: { x: 920, y: 400, offsetX: 0, offsetY: 0, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      2: { x: 1080, y: 380, offsetX: 0, offsetY: 0, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      3: { x: 1240, y: 360, offsetX: 0, offsetY: 0, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
+      4: { x: 1400, y: 340, offsetX: 0, offsetY: 0, width: DEFAULT_STICKER_W, height: DEFAULT_STICKER_H, rotation: 0 },
     };
 
     const GENERIC_CFG = {
@@ -215,15 +266,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
 
       const stickerW = slot.width || cfg.stickerWidth || DEFAULT_STICKER_W;
       const stickerH = slot.height || cfg.stickerHeight || DEFAULT_STICKER_H;
-      const offX = slot.offsetX != null ? slot.offsetX : (cfg.offsetX || slot.x);
-      const offY = slot.offsetY != null ? slot.offsetY : (cfg.offsetY || slot.y);
+      const offX = slot.offsetX != null ? slot.offsetX : (cfg.offsetX || 0);
+      const offY = slot.offsetY != null ? slot.offsetY : (cfg.offsetY || 0);
 
-      // Protobuf offsets divided by stickerFloatValue
+      // Protobuf offsets divided by stickerFloatValue.
+      // The slot position should act as the anchor point, not be cancelled out.
       const protoX = (sticker.offset_x || 0) / floatDiv;
       const protoY = (sticker.offset_y || 0) / floatDiv;
 
-      const x = protoX + slot.x + (stickerW / 2 - offX);
-      const y = protoY + slot.y + (stickerH / 2 - offY);
+      const x = slot.x + protoX + (stickerW / 2 - offX);
+      const y = slot.y + protoY + (stickerH / 2 - offY);
 
       // Rotation: sticker field 5 (rotation) or field 9 (offset_z as fallback)
       const stickerRot = sticker.rotation || sticker.offset_z || 0;
@@ -239,14 +291,61 @@ _HTML_TEMPLATE = r"""<!doctype html>
       const scene = document.getElementById('scene');
       scene.innerHTML = '';
 
+      const fallbackSkin = document.createElement('div');
+      fallbackSkin.className = 'skin-placeholder';
+      scene.appendChild(fallbackSkin);
+
+      const weaponFallback = document.createElement('div');
+      weaponFallback.className = 'weapon-fallback';
+      scene.appendChild(weaponFallback);
+
+      const weaponSilhouette = document.createElement('div');
+      weaponSilhouette.className = 'weapon-silhouette';
+      scene.appendChild(weaponSilhouette);
+
+      const fallbackPattern = document.createElement('div');
+      fallbackPattern.style.position = 'absolute';
+      fallbackPattern.style.inset = '0';
+      fallbackPattern.style.backgroundImage = 'repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.08) 8px, transparent 8px, transparent 16px)';
+      fallbackPattern.style.mixBlendMode = 'screen';
+      fallbackPattern.style.opacity = '0.95';
+      fallbackPattern.style.pointerEvents = 'none';
+      fallbackPattern.style.zIndex = '0';
+      scene.appendChild(fallbackPattern);
+
+      const fallbackLabel = document.createElement('div');
+      fallbackLabel.style.position = 'absolute';
+      fallbackLabel.style.left = '24px';
+      fallbackLabel.style.bottom = '24px';
+      fallbackLabel.style.padding = '10px 14px';
+      fallbackLabel.style.borderRadius = '10px';
+      fallbackLabel.style.background = 'rgba(0,0,0,0.78)';
+      fallbackLabel.style.color = '#fce0b2';
+      fallbackLabel.style.fontSize = '22px';
+      fallbackLabel.style.fontWeight = '700';
+      fallbackLabel.style.letterSpacing = '0.05em';
+      fallbackLabel.style.zIndex = '5';
+      fallbackLabel.textContent = title || 'CS2 Item Preview';
+      scene.appendChild(fallbackLabel);
+
       // Skin background
       if (data.item_image) {
         const img = document.createElement('img');
         img.className = 'skin';
         img.crossOrigin = 'anonymous';
         img.src = data.item_image;
-        scene.appendChild(img);
-        await new Promise(ok => { img.onload = ok; img.onerror = ok; });
+        img.style.zIndex = '1';
+
+        await new Promise((resolve) => {
+          const done = () => {
+            if (!img.parentNode) {
+              scene.appendChild(img);
+            }
+            resolve();
+          };
+          img.onload = done;
+          img.onerror = done;
+        });
       }
 
       statusEl.textContent = 'Placing stickers…';
@@ -266,6 +365,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
         wrap.style.height = pos.height + 'px';
         wrap.style.transform = 'rotate(' + pos.r + 'deg)';
         wrap.style.opacity = wear;
+
+        const slotMarker = document.createElement('div');
+        slotMarker.className = 'sticker-slot';
+        slotMarker.style.left = (pos.x) + 'px';
+        slotMarker.style.top = (pos.y) + 'px';
+        slotMarker.style.width = (Math.max(16, pos.width * 0.18)) + 'px';
+        slotMarker.style.height = (Math.max(16, pos.height * 0.18)) + 'px';
+        slotMarker.style.borderRadius = '4px';
+        scene.appendChild(slotMarker);
 
         const img = document.createElement('img');
         img.crossOrigin = 'anonymous';

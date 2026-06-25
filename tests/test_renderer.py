@@ -100,3 +100,41 @@ def test_html_contains_coordinate_formula():
     # Must use a 1920x1080 scene
     assert "1920" in html
     assert "1080" in html
+
+
+def test_html_contains_explicit_weapon_fallback_markup():
+    data = InspectData(
+        defindex=7,
+        paintindex=282,
+        paintseed=661,
+        paintwear=0.15,
+        stattrak=None,
+        stattrak_count=None,
+        souvenir=None,
+        rarity=4,
+        quality=4,
+        stickers=[StickerData(slot=0, sticker_id=1, image="https://example.com/sticker.png")],
+    )
+    html = build_item_render_html(data)
+    assert "weapon-fallback" in html
+    assert "sticker-slot" in html
+
+
+def test_html_appends_skin_image_to_scene_on_load():
+    data = InspectData(
+        defindex=7,
+        paintindex=282,
+        paintseed=661,
+        paintwear=0.15,
+        stattrak=None,
+        stattrak_count=None,
+        souvenir=None,
+        rarity=4,
+        quality=4,
+        item_image="https://example.com/skin.png",
+        stickers=[],
+    )
+    html = build_item_render_html(data)
+    assert "const done = () => {" in html
+    assert "scene.appendChild(img);" in html
+    assert "resolve();" in html

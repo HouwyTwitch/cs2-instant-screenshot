@@ -123,5 +123,17 @@ def render_cmd(
     typer.echo(str(out.resolve()))
 
 
+@app.command(name="serve")
+def serve_cmd(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
+    port: int = typer.Option(8000, "--port", help="Bind port"),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes"),
+) -> None:
+    """Run the FastAPI backend (decode API + 3D asset/web server)."""
+    import uvicorn
+
+    uvicorn.run("cs2screenshot.api:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

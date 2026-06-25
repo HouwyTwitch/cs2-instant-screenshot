@@ -315,6 +315,80 @@ def _parse_link(link: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------
+# Encoding (inverse of decode) — build a modern inspect link from parameters.
+# Useful for generating "gen code" craft links and for round-trip testing.
+# ---------------------------------------------------------------------------
+
+def _write_varint(value: int) -> bytes:
+    out = bytearray()
+    while True:
+        b = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+
+def _tag(field_number: int, wire_type: int) -> bytes:
+    return _write_varint((field_number << 3) | wire_type)
+
+
+def _float_bits(value: float) -> int:
+    return struct.unpack("<I", struct.pack("<f", value))[0]
+
+
+def _encode_sticker(s: "StickerData") -> bytes:
+    body = bytearray()
+    body += _tag(1, 0) + _write_varint(int(s.slot))
+    body += _tag(2, 0) + _write_varint(int(s.sticker_id))
+    if s.wear:
+        body += _tag(3, 5) + struct.pack("<I", _float_bits(s.wear))
+    if s.scale:
+        body += _tag(4, 5) + struct.pack("<I", _float_bits(s.scale))
+    if s.rotation:
+        body += _tag(5, 5) + struct.pack("<I", _float_bits(s.rotation))
+    return bytes(body)
+
+
+def encode(
+    *,
+    defindex: int,
+    paintindex: int,
+    paintseed: int = 0,
+    paintwear: float = 0.0,
+    quality: int = 4,
+    stickers: Optional[list["StickerData"]] = None,
+) -> str:
+    """Build a modern (self-encoded) CS2 inspect link from item parameters.
+
+    Produces the ``[0x00][protobuf][CRC32]`` wrapped, hex-encoded payload that
+    :func:`decode` accepts.  Returns a full ``steam://`` inspect link.
+    """
+    proto = bytearray()
+    proto += _tag(3, 0) + _write_varint(defindex)
+    proto += _tag(4, 0) + _write_varint(paintindex)
+    proto += _tag(6, 0) + _write_varint(quality)
+    if paintwear:
+        proto += _tag(7, 5) + struct.pack("<I", _float_bits(paintwear))
+    if paintseed:
+        proto += _tag(8, 0) + _write_varint(paintseed)
+    for s in stickers or []:
+        body = _encode_sticker(s)
+        proto += _tag(12, 2) + _write_varint(len(body)) + body
+
+    payload = bytes(proto)
+    checksum = _crc32_checksum(payload)
+    wrapped = b"\x00" + payload + struct.pack(">I", checksum)
+    hex_str = wrapped.hex().upper()
+    return (
+        "steam://rungame/730/76561202255233023/+csgo_econ_action_preview "
+        + hex_str
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
