@@ -4,9 +4,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { buildSkinMaterial } from "./paintMaterial.js?v=b10";
-import { buildPatternMaterial } from "./patternMaterial.js?v=b10";
-import { applyStickers } from "./stickers.js?v=b10";
+import { buildSkinMaterial } from "./paintMaterial.js?v=b11";
+import { buildPatternMaterial } from "./patternMaterial.js?v=b11";
+import { applyStickers } from "./stickers.js?v=b11";
 
 export class Viewer {
   constructor(container) {
@@ -153,18 +153,11 @@ export class Viewer {
       // the masked metal regions and positioned by the paint seed.
       material = await buildPatternMaterial(skin, paintseed, paintwear, composite, shared);
     } else if (skin && skin.kind === "pattern") {
-      // Custom paint (Asiimov, Anubis, …): the pattern IS the full albedo, so we
-      // render it through the proven baked path (correct sRGB + UV handling),
-      // using the weapon's own normal/rough/ao for surface detail.
-      const bakedSkin = {
-        ...skin,
-        textures: {
-          color: skin.pattern,
-          normal: (composite || {}).normal,
-          // No rough map → constant semi-gloss (CS2 g_flPaintRoughness ~0.38).
-          ao: (composite || {}).ao,
-        },
-      };
+      // Custom paint (Asiimov, Fire Serpent, …): the pattern IS the full albedo.
+      // It's authored for whichever body the finish targets (legacy vs HD), so we
+      // only feed the pattern as the color map — the HD composite normal/ao would
+      // be on the wrong UV for legacy skins. Constant semi-gloss (g_flPaintRoughness).
+      const bakedSkin = { ...skin, textures: { color: skin.pattern } };
       material = await buildSkinMaterial(bakedSkin, paintwear, shared);
     } else if (skin) {
       material = await buildSkinMaterial(skin, paintwear, shared);
@@ -174,8 +167,9 @@ export class Viewer {
     // overlap. A finish targets exactly one — picked by the kit's use_legacy_model
     // flag. Rendering both, or mapping an HD-authored finish onto legacy UVs,
     // produces a scrambled skin, so we keep only the matching body.
-    // (Pattern finishes use the HD composite inputs, so force HD for them.)
-    const useLegacy = skin && skin.kind === "pattern" ? false : !!(skin && skin.legacy);
+    // Respect each finish's target body: most older skins are authored for the
+    // legacy body (use_legacy_model=1); newer ones (Crane Flight) for HD.
+    const useLegacy = !!(skin && skin.legacy);
     root.traverse((node) => {
       if (!node.isMesh) return;
       const name = (node.name || "").toLowerCase();

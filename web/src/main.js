@@ -1,7 +1,7 @@
 // App orchestration: decode an inspect link via the backend, look up the
 // weapon model + skin textures in the manifest, and render in the 3D viewer.
 
-import { Viewer } from "./viewer.js?v=b10";
+import { Viewer } from "./viewer.js?v=b11";
 
 const API = ""; // same origin (served by FastAPI)
 
