@@ -4,10 +4,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { buildSkinMaterial } from "./paintMaterial.js?v=b9";
-import { buildPatternMaterial } from "./patternMaterial.js?v=b9";
-import { applyStickers } from "./stickers.js?v=b9";
+import { buildSkinMaterial } from "./paintMaterial.js?v=b10";
+import { buildPatternMaterial } from "./patternMaterial.js?v=b10";
+import { applyStickers } from "./stickers.js?v=b10";
 
 export class Viewer {
   constructor(container) {
@@ -26,9 +25,11 @@ export class Viewer {
 
     this.scene = new THREE.Scene();
 
-    // Image-based lighting for believable metal/paint reflections.
+    // CS2 weapon finishes are largely metallic, so their brightness comes from
+    // environment reflections. A bright neutral studio gradient (rather than the
+    // dim RoomEnvironment) keeps metallic skins from rendering dark.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = pmrem.fromEquirectangular(this._studioEnvTexture()).texture;
 
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
     this.camera.position.set(0.0, 0.12, 0.6);
@@ -64,6 +65,25 @@ export class Viewer {
     window.addEventListener("resize", this._resize);
     this._resize();
     this._animate();
+  }
+
+  // A bright neutral studio gradient used as the reflection environment.
+  _studioEnvTexture() {
+    const c = document.createElement("canvas");
+    c.width = 32;
+    c.height = 128;
+    const ctx = c.getContext("2d");
+    const g = ctx.createLinearGradient(0, 0, 0, 128);
+    g.addColorStop(0.0, "#ffffff"); // bright sky
+    g.addColorStop(0.45, "#e7ecf2");
+    g.addColorStop(0.55, "#cdd4dc"); // horizon
+    g.addColorStop(1.0, "#8b9098"); // floor
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 128);
+    const tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
   }
 
   _resize() {
@@ -141,7 +161,7 @@ export class Viewer {
         textures: {
           color: skin.pattern,
           normal: (composite || {}).normal,
-          rough: (composite || {}).rough,
+          // No rough map → constant semi-gloss (CS2 g_flPaintRoughness ~0.38).
           ao: (composite || {}).ao,
         },
       };

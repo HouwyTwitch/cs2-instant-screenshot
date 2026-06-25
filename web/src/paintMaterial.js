@@ -55,12 +55,13 @@ export async function buildSkinMaterial(skin, paintwear, shared = {}) {
     roughnessMap: rough,
     metalnessMap: metal,
     aoMap: ao,
-    // Crane Flight reads bright because its metalness MAP keeps the paint areas
-    // dielectric (lit by the front key). Custom paints ship no metal map, so
-    // default to dielectric paint — fully metallic would make them dark.
-    metalness: metal ? 1.0 : 0.0,
-    roughness: 1.0,
-    envMapIntensity: 1.0,
+    // CS2 weapon finishes are fully metallic (g_tMetalness defaults to 1.0); a
+    // baked skin's own metal map modulates it, while custom paints use a constant
+    // semi-gloss roughness (g_flPaintRoughness ~0.38). Brightness comes from the
+    // bright studio environment, not from being made dielectric.
+    metalness: 1.0,
+    roughness: rough ? 1.0 : 0.38,
+    envMapIntensity: 1.6,
   });
 
   const wear = effectiveWear(paintwear, skin);

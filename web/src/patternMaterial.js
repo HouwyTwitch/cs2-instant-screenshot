@@ -9,7 +9,7 @@
 // (`_pos`) + cavity edge wear are b2.
 
 import * as THREE from "three";
-import { effectiveWear } from "./paintMaterial.js?v=b9";
+import { effectiveWear } from "./paintMaterial.js?v=b10";
 
 const texLoader = new THREE.TextureLoader();
 
