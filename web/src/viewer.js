@@ -4,9 +4,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { buildSkinMaterial } from "./paintMaterial.js?v=b11";
-import { buildPatternMaterial } from "./patternMaterial.js?v=b11";
-import { applyStickers } from "./stickers.js?v=b11";
+import { buildSkinMaterial } from "./paintMaterial.js?v=b13";
+import { buildPatternMaterial, applyCustomPaint } from "./patternMaterial.js?v=b13";
+import { applyStickers } from "./stickers.js?v=b13";
 
 export class Viewer {
   constructor(container) {
@@ -147,19 +147,15 @@ export class Viewer {
     const gltf = await this.loader.loadAsync(modelUrl);
     const root = gltf.scene;
 
+    // Custom paints overlay onto each mesh's own base material (kept as-is);
+    // seeded + baked finishes replace the material entirely.
+    const isCustomPaint = !!(skin && skin.kind === "pattern" && !skin.seeded);
     let material = null;
     if (skin && skin.kind === "pattern" && skin.seeded) {
-      // Anodized/antiqued (Case Hardened, Fade, …): pattern is composited onto
-      // the masked metal regions and positioned by the paint seed.
+      // Anodized/antiqued (Case Hardened, …): pattern composited via mask + seed.
       material = await buildPatternMaterial(skin, paintseed, paintwear, composite, shared);
-    } else if (skin && skin.kind === "pattern") {
-      // Custom paint (Asiimov, Fire Serpent, …): the pattern IS the full albedo.
-      // It's authored for whichever body the finish targets (legacy vs HD), so we
-      // only feed the pattern as the color map — the HD composite normal/ao would
-      // be on the wrong UV for legacy skins. Constant semi-gloss (g_flPaintRoughness).
-      const bakedSkin = { ...skin, textures: { color: skin.pattern } };
-      material = await buildSkinMaterial(bakedSkin, paintwear, shared);
-    } else if (skin) {
+    } else if (skin && skin.kind !== "pattern") {
+      // Baked skins (Crane Flight) ship a full PBR set authored for the HD body.
       material = await buildSkinMaterial(skin, paintwear, shared);
     }
 
@@ -170,6 +166,7 @@ export class Viewer {
     // Respect each finish's target body: most older skins are authored for the
     // legacy body (use_legacy_model=1); newer ones (Crane Flight) for HD.
     const useLegacy = !!(skin && skin.legacy);
+    const paintedMeshes = [];
     root.traverse((node) => {
       if (!node.isMesh) return;
       const name = (node.name || "").toLowerCase();
@@ -186,7 +183,13 @@ export class Viewer {
         geo.setAttribute("uv2", geo.attributes.uv);
       }
       if (material) node.material = material;
+      paintedMeshes.push(node);
     });
+
+    // Custom paint: overlay the pattern onto the visible meshes' own materials.
+    if (isCustomPaint) {
+      await applyCustomPaint(paintedMeshes, skin, paintwear, shared);
+    }
 
     this.scene.add(root);
     this._orient(root);

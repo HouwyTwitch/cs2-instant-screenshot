@@ -9,7 +9,7 @@
 // (`_pos`) + cavity edge wear are b2.
 
 import * as THREE from "three";
-import { effectiveWear } from "./paintMaterial.js?v=b11";
+import { effectiveWear } from "./paintMaterial.js?v=b13";
 
 const texLoader = new THREE.TextureLoader();
 
@@ -44,6 +44,69 @@ function seedTransform(seed) {
   };
 }
 
+// Custom paint overlay: instead of building a material from scratch (which would
+// need the base color + paint mask on the right UV — they're HD-only, but most
+// skins render on the legacy body), we keep each body mesh's OWN material (its
+// correct base color on the correct UV) and overlay the pattern on top. The
+// pattern is authored for that same UV, and its alpha encodes paint coverage —
+// so the base (wood furniture / bare metal) shows where the skin isn't painted.
+export async function applyCustomPaint(meshes, skin, paintwear, shared = {}) {
+  const [pattern, wearTex, grungeTex] = await Promise.all([
+    loadTexture(skin.pattern, { srgb: true }),
+    loadTexture(shared.paint_wear),
+    loadTexture(shared.grunge),
+  ]);
+  if (!pattern) return;
+  const wear = effectiveWear(paintwear, skin);
+  const brightness = skin.color_brightness ?? 1.0;
+
+  for (const node of meshes) {
+    const mat = node.material;
+    mat.userData.wear = wear;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWear = { value: wear };
+      shader.uniforms.uBrightness = { value: brightness };
+      shader.uniforms.tPattern = { value: pattern };
+      shader.uniforms.tWear = { value: wearTex };
+      shader.uniforms.tGrunge = { value: grungeTex };
+
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec2 vSkinUv;")
+        .replace("#include <uv_vertex>", "#include <uv_vertex>\nvSkinUv = uv;");
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          `#include <common>
+           uniform float uWear, uBrightness;
+           uniform sampler2D tPattern, tWear, tGrunge;
+           varying vec2 vSkinUv;`,
+        )
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+           {
+             // diffuseColor is now the mesh's own base (wood + metal, right UV).
+             vec4 pat = texture2D(tPattern, vSkinUv);
+             // Alpha encodes paint coverage; base shows where there's no paint.
+             float cover = smoothstep(0.72, 0.96, pat.a);
+             vec3 paintCol = pat.rgb * uBrightness;
+             // Wear: paint scratches off (following the wear pattern) toward metal.
+             float pw = texture2D(tWear, vSkinUv).r;
+             float gr = texture2D(tGrunge, vSkinUv).r;
+             float worn = smoothstep(pw - 0.10, pw + 0.10, uWear * 1.15) * cover;
+             float luma = dot(paintCol, vec3(0.299, 0.587, 0.114));
+             vec3 metalCol = vec3(luma) * 0.32 * mix(0.6, 1.0, gr);
+             paintCol = mix(paintCol, metalCol, worn);
+             diffuseColor.rgb = mix(diffuseColor.rgb, paintCol, cover);
+           }`,
+        );
+      mat.userData.shader = shader;
+    };
+    mat.needsUpdate = true;
+  }
+}
+
 export async function buildPatternMaterial(skin, paintseed, paintwear, composite, shared = {}) {
   const c = composite || {};
   const [base, masks, ao, normal, rough, pattern, wearTex, grungeTex] = await Promise.all([
@@ -57,14 +120,15 @@ export async function buildPatternMaterial(skin, paintseed, paintwear, composite
     loadTexture(shared.grunge),
   ]);
 
+  // map = the weapon's base (wood furniture + metal). The pattern is composited
+  // over it via the paint mask; metalness/roughness are driven per-region in the
+  // shader. We deliberately skip the AK normal/rough/ao maps here because they
+  // are HD-UV and most pattern skins render on the legacy body (wrong UV).
   const mat = new THREE.MeshStandardMaterial({
     map: base,
-    normalMap: normal,
-    roughnessMap: rough,
-    aoMap: ao,
-    metalness: 0.85,
-    roughness: 0.9,
-    envMapIntensity: 1.0,
+    metalness: 1.0,
+    roughness: 0.5,
+    envMapIntensity: 1.6,
   });
 
   const wear = effectiveWear(paintwear, skin);
@@ -107,9 +171,9 @@ export async function buildPatternMaterial(skin, paintseed, paintwear, composite
         "#include <map_fragment>",
         `#include <map_fragment>
          if (uHasPattern > 0.5) {
-           // Custom paint covers the whole weapon (the pattern IS the albedo);
-           // anodized/antiqued paints only the masked (metal) regions.
-           float paintMask = mix(1.0, texture2D(tMasks, vSkinUv).r, uSeeded);
+           // Paint mask: where the finish applies (metal); 0 leaves the base
+           // (wood furniture / bare metal) showing through.
+           float pm = texture2D(tMasks, vSkinUv).r;
            // Custom paint maps 1:1 to UV; anodized/antiqued randomizes by seed.
            vec2 patUv = vSkinUv;
            if (uSeeded > 0.5) {
@@ -119,27 +183,38 @@ export async function buildPatternMaterial(skin, paintseed, paintwear, composite
              patUv = p * uSeedScale + 0.5 + uSeedOffset;
            }
            vec3 patternColor = texture2D(tPattern, patUv).rgb * uBrightness;
-           // Composite the finish onto the painted regions.
-           vec3 painted = patternColor;
-           // Wear within painted regions, following the wear pattern.
+           // Wear: paint scratches off following the wear pattern, exposing metal.
            float pw = texture2D(tWear, vSkinUv).r;
            float gr = texture2D(tGrunge, vSkinUv).r;
            float worn = smoothstep(pw - 0.10, pw + 0.10, uWear * 1.15);
-           float luma = dot(painted, vec3(0.299, 0.587, 0.114));
+           float luma = dot(patternColor, vec3(0.299, 0.587, 0.114));
            vec3 metalColor = vec3(luma) * 0.30 * mix(0.65, 1.0, gr);
-           painted = mix(painted, metalColor, worn);
-           diffuseColor.rgb = mix(diffuseColor.rgb, painted, paintMask);
-           wornFactor = worn * paintMask;
+           vec3 painted = mix(patternColor, metalColor, worn);
+           // Composite the finish over the base where the mask says it is painted.
+           diffuseColor.rgb = mix(diffuseColor.rgb, painted, pm);
+           vPaintMask = pm;
+           wornFactor = worn * pm;
+         }`,
+      )
+      .replace(
+        "#include <metalnessmap_fragment>",
+        `#include <metalnessmap_fragment>
+         if (uHasPattern > 0.5) {
+           // Painted metal is metallic; unpainted base (wood) is dielectric.
+           metalnessFactor = max(vPaintMask, wornFactor);
          }`,
       )
       .replace(
         "#include <roughnessmap_fragment>",
         `#include <roughnessmap_fragment>
-         roughnessFactor = clamp(roughnessFactor - 0.35 + wornFactor * 0.7, 0.05, 1.0);`,
+         if (uHasPattern > 0.5) {
+           // Semi-gloss paint (~0.38), matte base, rougher where worn.
+           roughnessFactor = clamp(mix(0.78, 0.38, vPaintMask) + wornFactor * 0.45, 0.05, 1.0);
+         }`,
       )
       .replace(
         "void main() {",
-        "void main() {\n\tfloat wornFactor = 0.0;",
+        "void main() {\n\tfloat wornFactor = 0.0;\n\tfloat vPaintMask = 0.0;",
       );
 
     mat.userData.shader = shader;
